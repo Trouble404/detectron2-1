@@ -6,8 +6,9 @@ from fvcore.nn import giou_loss, smooth_l1_loss
 from torch import nn
 
 from detectron2.config import configurable
+from detectron2.data.detection_utils import get_empty_instance
 from detectron2.layers import ShapeSpec, cat
-from detectron2.structures import Boxes, ImageList, Instances, pairwise_iou
+from detectron2.structures import Boxes, ImageList, Instances, pairwise_ioa, pairwise_iou
 from detectron2.utils.events import get_event_storage
 from detectron2.utils.memory import retry_if_cuda_oom
 from detectron2.utils.registry import Registry
@@ -241,7 +242,10 @@ class RPN(nn.Module):
 
         ret["anchor_generator"] = build_anchor_generator(cfg, [input_shape[f] for f in in_features])
         ret["anchor_matcher"] = Matcher(
-            cfg.MODEL.RPN.IOU_THRESHOLDS, cfg.MODEL.RPN.IOU_LABELS, allow_low_quality_matches=True
+            cfg.MODEL.RPN.IOU_THRESHOLDS,
+            cfg.MODEL.RPN.IOU_LABELS,
+            allow_low_quality_matches=True,
+            ignore_threshold=cfg.MODEL.RPN.IGNORE_THRESHOLD,
         )
         ret["head"] = build_rpn_head(cfg, [input_shape[f] for f in in_features])
         return ret
@@ -264,15 +268,23 @@ class RPN(nn.Module):
         label.scatter_(0, neg_idx, 0)
         return label
 
+    def create_empty_instance(self, images):
+        """
+        create empty Instances by given images (ImageList)
+        """
+        image_sizes = images.image_sizes
+        return [get_empty_instance(size) for size in image_sizes]
+
     @torch.jit.unused
     @torch.no_grad()
     def label_and_sample_anchors(
-        self, anchors: List[Boxes], gt_instances: List[Instances]
+        self, anchors: List[Boxes], gt_instances: List[Instances], ignore_instances: List[Instances]
     ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
         """
         Args:
             anchors (list[Boxes]): anchors for each feature map.
             gt_instances: the ground-truth instances for each image.
+            ignore_instances: the ignore instances for each image.
 
         Returns:
             list[Tensor]:
@@ -287,22 +299,30 @@ class RPN(nn.Module):
         anchors = Boxes.cat(anchors)
 
         gt_boxes = [x.gt_boxes for x in gt_instances]
+        ignore_boxes = [x.gt_boxes for x in ignore_instances]
         image_sizes = [x.image_size for x in gt_instances]
-        del gt_instances
+        del gt_instances, ignore_instances
 
         gt_labels = []
         matched_gt_boxes = []
-        for image_size_i, gt_boxes_i in zip(image_sizes, gt_boxes):
+        for image_size_i, gt_boxes_i, ignore_boxes_i in zip(image_sizes, gt_boxes, ignore_boxes):
             """
             image_size_i: (h, w) for the i-th image
             gt_boxes_i: ground-truth boxes for i-th image
             """
-
             match_quality_matrix = retry_if_cuda_oom(pairwise_iou)(gt_boxes_i, anchors)
-            matched_idxs, gt_labels_i = retry_if_cuda_oom(self.anchor_matcher)(match_quality_matrix)
+            if len(ignore_boxes_i) > 0:
+                match_quality_ignore_matrix = retry_if_cuda_oom(pairwise_ioa)(
+                    ignore_boxes_i, anchors
+                )
+            else:
+                match_quality_ignore_matrix = None
+            matched_idxs, gt_labels_i = retry_if_cuda_oom(self.anchor_matcher)(
+                match_quality_matrix, match_quality_ignore_matrix
+            )
             # Matching is memory-expensive and may result in CPU tensors. But the result is small
             gt_labels_i = gt_labels_i.to(device=gt_boxes_i.device)
-            del match_quality_matrix
+            del match_quality_matrix, match_quality_ignore_matrix
 
             if self.anchor_boundary_thresh >= 0:
                 # Discard anchors that go out of the boundaries of the image
@@ -404,6 +424,7 @@ class RPN(nn.Module):
         images: ImageList,
         features: Dict[str, torch.Tensor],
         gt_instances: Optional[List[Instances]] = None,
+        ignore_instances: Optional[List[Instances]] = None,
     ):
         """
         Args:
@@ -414,6 +435,8 @@ class RPN(nn.Module):
                 vary between feature maps (e.g., if a feature pyramid is used).
             gt_instances (list[Instances], optional): a length `N` list of `Instances`s.
                 Each `Instances` stores ground-truth instances for the corresponding image.
+            ignore_instances (list[Instances], optional): a length `N` list of `Instances`s.
+                Each `Instances` stores ignore instances for the corresponding image.
 
         Returns:
             proposals: list[Instances]: contains fields "proposal_boxes", "objectness_logits"
@@ -439,7 +462,11 @@ class RPN(nn.Module):
 
         if self.training:
             assert gt_instances is not None, "RPN requires gt_instances in training!"
-            gt_labels, gt_boxes = self.label_and_sample_anchors(anchors, gt_instances)
+            if ignore_instances is None:
+                ignore_instances = self.create_empty_instance(images)
+            gt_labels, gt_boxes = self.label_and_sample_anchors(
+                anchors, gt_instances, ignore_instances
+            )
             losses = self.losses(
                 anchors, pred_objectness_logits, gt_labels, pred_anchor_deltas, gt_boxes
             )

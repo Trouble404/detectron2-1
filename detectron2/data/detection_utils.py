@@ -603,3 +603,15 @@ build_transform_gen = build_augmentation
 """
 Alias for backward-compatibility.
 """
+
+
+def get_empty_instance(image_size):
+    """
+    Create empty instance with "boxes", "classes" and "masks"
+    """
+    h, w = image_size
+    inst = Instances((h, w))
+    inst.gt_boxes = Boxes(torch.rand(0, 4))
+    inst.gt_classes = torch.tensor([]).to(dtype=torch.int64)
+    inst.gt_masks = BitMasks(torch.rand(0, h, w))
+    return inst

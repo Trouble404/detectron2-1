@@ -135,11 +135,17 @@ class RRPN(RPN):
             )
 
     @torch.no_grad()
-    def label_and_sample_anchors(self, anchors: List[RotatedBoxes], gt_instances: List[Instances]):
+    def label_and_sample_anchors(
+        self,
+        anchors: List[RotatedBoxes],
+        gt_instances: List[Instances],
+        ignore_instances: List[Instances],
+    ):
         """
         Args:
             anchors (list[RotatedBoxes]): anchors for each feature map.
             gt_instances: the ground-truth instances for each image.
+            ignore_instances: the ignore instances for each image.
 
         Returns:
             list[Tensor]:

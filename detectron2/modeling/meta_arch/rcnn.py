@@ -149,15 +149,23 @@ class GeneralizedRCNN(nn.Module):
             return self.inference(batched_inputs)
 
         images = self.preprocess_image(batched_inputs)
+
         if "instances" in batched_inputs[0]:
             gt_instances = [x["instances"].to(self.device) for x in batched_inputs]
         else:
             gt_instances = None
 
+        if "ignore_instances" in batched_inputs[0]:
+            ignore_instances = [x["ignore_instances"].to(self.device) for x in batched_inputs]
+        else:
+            ignore_instances = None
+
         features = self.backbone(images.tensor)
 
         if self.proposal_generator:
-            proposals, proposal_losses = self.proposal_generator(images, features, gt_instances)
+            proposals, proposal_losses = self.proposal_generator(
+                images, features, gt_instances, ignore_instances
+            )
         else:
             assert "proposals" in batched_inputs[0]
             proposals = [x["proposals"].to(self.device) for x in batched_inputs]
@@ -282,7 +290,14 @@ class ProposalNetwork(nn.Module):
             gt_instances = [x["targets"].to(self.device) for x in batched_inputs]
         else:
             gt_instances = None
-        proposals, proposal_losses = self.proposal_generator(images, features, gt_instances)
+        if "ignore_instances" in batched_inputs[0]:
+            ignore_instances = [x["ignore_instances"].to(self.device) for x in batched_inputs]
+        else:
+            ignore_instances = None
+
+        proposals, proposal_losses = self.proposal_generator(
+            images, features, gt_instances, ignore_instances
+        )
         # In training, the proposals are not useful at all but we generate them anyway.
         # This makes RPN-only models about 5% slower.
         if self.training:
