@@ -368,14 +368,21 @@ def annotations_to_instances(annos, image_size, mask_format="polygon"):
         image_size (tuple): height, width
 
     Returns:
-        Instances:
+        gt_target (Instances):
             It will contain fields "gt_boxes", "gt_classes",
             "gt_masks", "gt_keypoints", if they can be obtained from `annos`.
+            which their 'ignore' annotation is 0.
             This is the format that builtin models expect.
+        ignore_target (Instances): same as gt_target but with 'ignore' annotation 1.
     """
     boxes = [BoxMode.convert(obj["bbox"], obj["bbox_mode"], BoxMode.XYXY_ABS) for obj in annos]
     target = Instances(image_size)
     target.gt_boxes = Boxes(boxes)
+
+    ignore_list = [obj.get("ignore", 0) for obj in annos]
+    ignore_list = torch.tensor(ignore_list, dtype=torch.int64)
+    assert len(boxes) == len(ignore_list)
+    target.ignore_list = ignore_list
 
     classes = [obj["category_id"] for obj in annos]
     classes = torch.tensor(classes, dtype=torch.int64)
@@ -419,7 +426,10 @@ def annotations_to_instances(annos, image_size, mask_format="polygon"):
         kpts = [obj.get("keypoints", []) for obj in annos]
         target.gt_keypoints = Keypoints(kpts)
 
-    return target
+    gt_target = target.get_filter_fields("gt")
+    ignore_target = target.get_filter_fields("ignore")
+
+    return gt_target, ignore_target
 
 
 def annotations_to_instances_rotated(annos, image_size):
@@ -434,10 +444,12 @@ def annotations_to_instances_rotated(annos, image_size):
         image_size (tuple): height, width
 
     Returns:
-        Instances:
-            Containing fields "gt_boxes", "gt_classes",
-            if they can be obtained from `annos`.
+        gt_target (Instances):
+            It will contain fields "gt_boxes", "gt_classes",
+            "gt_masks", "gt_keypoints", if they can be obtained from `annos`.
+            which their 'ignore' annotation is 0.
             This is the format that builtin models expect.
+        ignore_target (Instances): same as gt_target but with 'ignore' annotation 1.
     """
     boxes = [obj["bbox"] for obj in annos]
     target = Instances(image_size)
@@ -448,7 +460,10 @@ def annotations_to_instances_rotated(annos, image_size):
     classes = torch.tensor(classes, dtype=torch.int64)
     target.gt_classes = classes
 
-    return target
+    gt_target = target.get_filter_fields("gt")
+    ignore_target = target.get_filter_fields("ignore")
+
+    return gt_target, ignore_target
 
 
 def filter_empty_instances(instances, by_box=True, by_mask=True, box_threshold=1e-5):

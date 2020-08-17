@@ -73,14 +73,20 @@ if __name__ == "__main__":
                 img = utils.convert_image_to_rgb(img, cfg.INPUT.FORMAT)
 
                 visualizer = Visualizer(img, metadata=metadata, scale=scale)
-                target_fields = per_image["instances"].get_fields()
-                labels = [metadata.thing_classes[i] for i in target_fields["gt_classes"]]
-                vis = visualizer.overlay_instances(
-                    labels=labels,
-                    boxes=target_fields.get("gt_boxes", None),
-                    masks=target_fields.get("gt_masks", None),
-                    keypoints=target_fields.get("gt_keypoints", None),
-                )
+                for field in ["instances", "ignore_instances"]:
+                    target_fields = per_image[field].get_fields()
+                    ignore_list = target_fields["ignore_list"]
+                    gt_classes = target_fields["gt_classes"]
+                    labels = [
+                        metadata.thing_classes[idx] if flag == 0 else "ignore"
+                        for flag, idx in zip(ignore_list, gt_classes)
+                    ]
+                    vis = visualizer.overlay_instances(
+                        labels=labels,
+                        boxes=target_fields.get("gt_boxes", None),
+                        masks=target_fields.get("gt_masks", None),
+                        keypoints=target_fields.get("gt_keypoints", None),
+                    )
                 output(vis, str(per_image["image_id"]) + ".jpg")
     else:
         dicts = list(chain.from_iterable([DatasetCatalog.get(k) for k in cfg.DATASETS.TRAIN]))

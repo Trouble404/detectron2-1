@@ -20,6 +20,7 @@ class TestTransformAnnotations(unittest.TestCase):
             "bbox_mode": BoxMode.XYXY_ABS,
             "category_id": 3,
             "segmentation": [[10, 10, 100, 100, 100, 10], [150, 150, 200, 150, 200, 200]],
+            "ignore": 0,
         }
 
         output = detection_utils.transform_instance_annotations(anno, transforms, (400, 400))
@@ -27,7 +28,12 @@ class TestTransformAnnotations(unittest.TestCase):
         self.assertEqual(len(output["segmentation"]), len(anno["segmentation"]))
         self.assertTrue(np.allclose(output["segmentation"][0], [390, 10, 300, 100, 300, 10]))
 
-        detection_utils.annotations_to_instances([output, output], (400, 400))
+        output["ignore"] = 1
+        gt_instances, ignore_instances = detection_utils.annotations_to_instances(
+            [output, output], (400, 400)
+        )
+        self.assertEqual(len(gt_instances), 0)
+        self.assertEqual(len(ignore_instances), 2)
 
     def test_flip_keypoints(self):
         transforms = T.TransformList([T.HFlipTransform(400)])
@@ -97,7 +103,7 @@ class TestTransformAnnotations(unittest.TestCase):
         self.assertTrue((mask[:, 200:] == 1).all())
         self.assertTrue((mask[:, :200] == 0).all())
 
-        inst = detection_utils.annotations_to_instances(
+        inst, _ = detection_utils.annotations_to_instances(
             [output, output], (400, 400), mask_format="bitmask"
         )
         self.assertTrue(isinstance(inst.gt_masks, BitMasks))
@@ -119,7 +125,7 @@ class TestTransformAnnotations(unittest.TestCase):
             copy.deepcopy(anno), transforms, (400, 400)
         )
 
-        inst = detection_utils.annotations_to_instances(
+        inst, _ = detection_utils.annotations_to_instances(
             [output, output], (400, 400), mask_format="bitmask"
         )
         self.assertTrue(isinstance(inst.gt_masks, BitMasks))

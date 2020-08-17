@@ -113,7 +113,7 @@ class DatasetMapper:
         if self.mask_on:
             self._add_densepose_masks_as_segmentation(annos, image_shape)
 
-        instances = utils.annotations_to_instances(annos, image_shape, mask_format="bitmask")
+        instances, _ = utils.annotations_to_instances(annos, image_shape, mask_format="bitmask")
         densepose_annotations = [obj.get("densepose") for obj in annos]
         if densepose_annotations and not all(v is None for v in densepose_annotations):
             instances.gt_densepose = DensePoseList(
