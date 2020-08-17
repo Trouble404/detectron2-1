@@ -66,10 +66,12 @@ def mapper(dataset_dict):
         utils.transform_instance_annotations(annotation, [transform], image.shape[1:])
         for annotation in dataset_dict.pop("annotations")
     ]
+    gt_instances, ignore_instances = utils.annotations_to_instances(annos, image.shape[1:])
     return {
        # create the format that the model expects
        "image": image,
-       "instances": utils.annotations_to_instances(annos, image.shape[1:])
+       "instances": gt_instances,
+       "ignore_instances": ignore_instances
     }
 dataloader = build_detection_train_loader(cfg, mapper=mapper)
 ```

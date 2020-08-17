@@ -101,6 +101,26 @@ class Instances:
         """
         return self._fields
 
+    def get_filter_fields(self, mode="gt") -> Dict[str, Any]:
+        """
+        Args:
+            mode: 'gt' will return noraml gt instance, 'ignore' will return ignore instance
+
+        Returns:
+            dict: a dict which maps names (str) to filter data of the fields
+
+        """
+        if mode == "gt":
+            keep_index = (self._fields["ignore_list"] == 0).nonzero().view(-1)
+        elif mode == "ignore":
+            keep_index = (self._fields["ignore_list"] == 1).nonzero().view(-1)
+        else:
+            raise NotImplementedError
+        filter_field = Instances(self.image_size)
+        for k, v in self._fields.items():
+            filter_field.set(k, v[keep_index])
+        return filter_field
+
     # Tensor-like methods
     def to(self, *args: Any, **kwargs: Any) -> "Instances":
         """
