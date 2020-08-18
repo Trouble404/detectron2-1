@@ -210,8 +210,10 @@ _C.MODEL.RPN.BOUNDARY_THRESH = -1
 # ==> negative RPN example: 0)
 # Anchors with overlap in between (BG_IOU_THRESHOLD <= IoU < FG_IOU_THRESHOLD)
 # are ignored (-1)
+# Ignore threshold > 0 will set BG_IoA < ignore_threshold's boxes to ignore flag
 _C.MODEL.RPN.IOU_THRESHOLDS = [0.3, 0.7]
 _C.MODEL.RPN.IOU_LABELS = [0, -1, 1]
+_C.MODEL.RPN.IGNORE_THRESHOLD = -1.0
 # Number of regions per image used to train RPN
 _C.MODEL.RPN.BATCH_SIZE_PER_IMAGE = 256
 # Target fraction of foreground (positive) examples per RPN minibatch

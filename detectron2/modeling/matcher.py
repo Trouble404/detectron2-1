@@ -22,7 +22,11 @@ class Matcher(object):
     """
 
     def __init__(
-        self, thresholds: List[float], labels: List[int], allow_low_quality_matches: bool = False
+        self,
+        thresholds: List[float],
+        labels: List[int],
+        allow_low_quality_matches: bool = False,
+        ignore_threshold: float = -1.0,
     ):
         """
         Args:
@@ -34,7 +38,8 @@ class Matcher(object):
             allow_low_quality_matches (bool): if True, produce additional matches
                 for predictions with maximum match quality lower than high_threshold.
                 See set_low_quality_matches_ for more details.
-
+            ignore_threshold (float): if ignore_threshold > 0, matcher will find
+                ignore boxes in instances and filter ignore area from background match.
             For example,
                 thresholds = [0.3, 0.5]
                 labels = [0, -1, 1]
@@ -57,15 +62,18 @@ class Matcher(object):
         self.thresholds = thresholds
         self.labels = labels
         self.allow_low_quality_matches = allow_low_quality_matches
+        self.ignore_threshold = ignore_threshold
 
-    def __call__(self, match_quality_matrix):
+    def __call__(self, match_quality_matrix, match_quality_ignore_matrix=None):
         """
         Args:
             match_quality_matrix (Tensor[float]): an MxN tensor, containing the
-                pairwise quality between M ground-truth elements and N predicted
+                pairwise quality of IoU between M ground-truth elements and N predicted
                 elements. All elements must be >= 0 (due to the us of `torch.nonzero`
                 for selecting indices in :meth:`set_low_quality_matches_`).
-
+            match_quality_ignore_matrix (Tensor[float]): an MxN tensor, containing the
+                pairwise quality of IoA between M ground-truth elements and N predicted
+                elements.
         Returns:
             matches (Tensor[int64]): a vector of length N, where matches[i] is a matched
                 ground-truth index in [0, M)
@@ -96,9 +104,17 @@ class Matcher(object):
         for (l, low, high) in zip(self.labels, self.thresholds[:-1], self.thresholds[1:]):
             low_high = (matched_vals >= low) & (matched_vals < high)
             match_labels[low_high] = l
+            if l == 0:
+                bg_thresh = (low, high)
 
         if self.allow_low_quality_matches:
             self.set_low_quality_matches_(match_labels, match_quality_matrix)
+
+        if self.ignore_threshold > 0 and match_quality_ignore_matrix is not None:
+            ignore_vals, _ = match_quality_ignore_matrix.max(dim=0)
+            bg_index = (matched_vals >= bg_thresh[0]) & (matched_vals < bg_thresh[1])
+            ignore_index = ignore_vals > self.ignore_threshold
+            match_labels[(bg_index & ignore_index).nonzero().view(-1)] = -1
 
         return matches, match_labels
 

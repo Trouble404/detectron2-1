@@ -7,7 +7,7 @@ from torch import nn
 
 from detectron2.config import configurable
 from detectron2.layers import ShapeSpec, cat
-from detectron2.structures import Boxes, ImageList, Instances, pairwise_iou
+from detectron2.structures import Boxes, ImageList, Instances, pairwise_ioa, pairwise_iou
 from detectron2.utils.events import get_event_storage
 from detectron2.utils.memory import retry_if_cuda_oom
 from detectron2.utils.registry import Registry
@@ -241,7 +241,10 @@ class RPN(nn.Module):
 
         ret["anchor_generator"] = build_anchor_generator(cfg, [input_shape[f] for f in in_features])
         ret["anchor_matcher"] = Matcher(
-            cfg.MODEL.RPN.IOU_THRESHOLDS, cfg.MODEL.RPN.IOU_LABELS, allow_low_quality_matches=True
+            cfg.MODEL.RPN.IOU_THRESHOLDS,
+            cfg.MODEL.RPN.IOU_LABELS,
+            allow_low_quality_matches=True,
+            ignore_threshold=cfg.MODEL.RPN.IGNORE_THRESHOLD,
         )
         ret["head"] = build_rpn_head(cfg, [input_shape[f] for f in in_features])
         return ret
@@ -288,21 +291,34 @@ class RPN(nn.Module):
 
         gt_boxes = [x.gt_boxes for x in gt_instances]
         image_sizes = [x.image_size for x in gt_instances]
+        ignore_boxes = []
+        for instance in gt_instances:
+            if instance.obtain_extra_data("ignore") is not None:
+                ignore_boxes.append(instance.obtain_extra_data("ignore").gt_boxes)
+            else:
+                ignore_boxes.append([])
         del gt_instances
 
         gt_labels = []
         matched_gt_boxes = []
-        for image_size_i, gt_boxes_i in zip(image_sizes, gt_boxes):
+        for image_size_i, gt_boxes_i, ignore_boxes_i in zip(image_sizes, gt_boxes, ignore_boxes):
             """
             image_size_i: (h, w) for the i-th image
             gt_boxes_i: ground-truth boxes for i-th image
             """
-
             match_quality_matrix = retry_if_cuda_oom(pairwise_iou)(gt_boxes_i, anchors)
-            matched_idxs, gt_labels_i = retry_if_cuda_oom(self.anchor_matcher)(match_quality_matrix)
+            if len(ignore_boxes_i) > 0:
+                match_quality_ignore_matrix = retry_if_cuda_oom(pairwise_ioa)(
+                    ignore_boxes_i, anchors
+                )
+            else:
+                match_quality_ignore_matrix = None
+            matched_idxs, gt_labels_i = retry_if_cuda_oom(self.anchor_matcher)(
+                match_quality_matrix, match_quality_ignore_matrix
+            )
             # Matching is memory-expensive and may result in CPU tensors. But the result is small
             gt_labels_i = gt_labels_i.to(device=gt_boxes_i.device)
-            del match_quality_matrix
+            del match_quality_matrix, match_quality_ignore_matrix
 
             if self.anchor_boundary_thresh >= 0:
                 # Discard anchors that go out of the boundaries of the image

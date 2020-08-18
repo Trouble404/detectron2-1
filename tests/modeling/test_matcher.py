@@ -14,15 +14,19 @@ class TestMatcher(unittest.TestCase):
     def test_scriptability(self):
         cfg = get_cfg()
         anchor_matcher = Matcher(
-            cfg.MODEL.RPN.IOU_THRESHOLDS, cfg.MODEL.RPN.IOU_LABELS, allow_low_quality_matches=True
+            cfg.MODEL.RPN.IOU_THRESHOLDS,
+            cfg.MODEL.RPN.IOU_LABELS,
+            allow_low_quality_matches=True,
+            ignore_threshold=0.7,
         )
         match_quality_matrix = torch.tensor(
             [[0.15, 0.45, 0.2, 0.6], [0.3, 0.65, 0.05, 0.1], [0.05, 0.4, 0.25, 0.4]]
         )
+        match_quality_ignore_matrix = torch.tensor([[0.20, 0.40, 0.90, 0.20]])
         expected_matches = torch.tensor([1, 1, 2, 0])
-        expected_match_labels = torch.tensor([-1, 1, 0, 1], dtype=torch.int8)
+        expected_match_labels = torch.tensor([-1, 1, -1, 1], dtype=torch.int8)
 
-        matches, match_labels = anchor_matcher(match_quality_matrix)
+        matches, match_labels = anchor_matcher(match_quality_matrix, match_quality_ignore_matrix)
         self.assertTrue(torch.allclose(matches, expected_matches))
         self.assertTrue(torch.allclose(match_labels, expected_match_labels))
 
